@@ -1241,9 +1241,11 @@ TEST_F(RenderEngineVtkTest, VtkGltfBehavior) {
 }
 
 // RenderEngineVtkParams::backface_culling. The camera sits inside a closed
-// shape, so everything it can see is the inside of the shape: its back faces.
-// Without culling, every image shows the shape; with culling, every image is
-// empty. glTF materials declared double-sided are drawn either way.
+// shape (the "wall"), so everything it can see of the wall is its inside: its
+// back faces. Beyond the wall, in view, is a second box (the "outer" box).
+// Without culling, the wall occludes the outer box; with culling, the camera
+// sees through the wall to the outer box's front face. glTF materials declared
+// double-sided are drawn either way.
 TEST_F(RenderEngineVtkTest, BackfaceCulling) {
   // A 4-m cube centered on the camera: the faces are 2 m away, within the
   // depth range.
@@ -1265,11 +1267,20 @@ TEST_F(RenderEngineVtkTest, BackfaceCulling) {
       InMemoryMesh{MemoryFile(single_sided_gltf, ".gltf", "single_sided")},
       kHalfSize);
 
+  // A 1-m cube centered 3.5 m in front of the camera, entirely outside the
+  // wall: its near face is 3 m away, within the depth range.
+  const double kOuterDepth = 3.0;
+  const Box outer_box = Box::MakeCube(1.0);
+  const RigidTransformd X_WO =
+      X_WC_ * RigidTransformd(Vector3d(0, 0, kOuterDepth + 0.5));
+  const RenderLabel kWallLabel(17);
+  const RenderLabel kOuterLabel(18);
+
   struct Case {
     std::string name;
     const Shape* shape;
     bool culling;
-    bool expect_visible;
+    bool expect_wall;
   };
   const std::vector<Case> cases{
       {"box_no_culling", &box, false, true},
@@ -1285,24 +1296,41 @@ TEST_F(RenderEngineVtkTest, BackfaceCulling) {
         .backface_culling = c.culling,
         .backend = FLAGS_backend});
     engine.UpdateViewpoint(X_WC_);
-    expected_label_ = RenderLabel(17);
-    PerceptionProperties props;
-    props.AddProperty("label", "id", expected_label_);
-    const GeometryId id = GeometryId::get_new_id();
-    ASSERT_TRUE(engine.RegisterVisual(id, *c.shape, props,
+
+    PerceptionProperties wall_props;
+    wall_props.AddProperty("label", "id", kWallLabel);
+    const GeometryId wall_id = GeometryId::get_new_id();
+    ASSERT_TRUE(engine.RegisterVisual(wall_id, *c.shape, wall_props,
                                       RigidTransformd::Identity(),
                                       true /* needs update */, c.name));
-    engine.UpdatePoses(unordered_map<GeometryId, RigidTransformd>{{id, X_WV}});
+
+    PerceptionProperties outer_props;
+    outer_props.AddProperty("label", "id", kOuterLabel);
+    outer_props.AddProperty("phong", "diffuse", Rgba(1, 0, 0));
+    const GeometryId outer_id = GeometryId::get_new_id();
+    ASSERT_TRUE(engine.RegisterVisual(outer_id, outer_box, outer_props, X_WO,
+                                      false /* needs update */, "outer"));
+
+    engine.UpdatePoses(
+        unordered_map<GeometryId, RigidTransformd>{{wall_id, X_WV}});
     Render(c.name, &engine);
-    if (c.expect_visible) {
-      const ScreenCoord center{kWidth / 2, kHeight / 2};
+    const ScreenCoord center{kWidth / 2, kHeight / 2};
+    if (c.expect_wall) {
       EXPECT_NEAR(depth_.at(center.x, center.y)[0], kHalfSize, kDepthTolerance);
-      EXPECT_EQ(label_.at(center.x, center.y)[0], expected_label_);
+      EXPECT_EQ(label_.at(center.x, center.y)[0], kWallLabel);
       EXPECT_FALSE(CompareColor(kBgColor, color_, center));
     } else {
-      VerifyUniformDepth(std::numeric_limits<float>::infinity());
-      VerifyUniformLabel(RenderLabel::kEmpty);
-      VerifyUniformColor(kBgColor);
+      EXPECT_NEAR(depth_.at(center.x, center.y)[0], kOuterDepth,
+                  kDepthTolerance);
+      EXPECT_EQ(label_.at(center.x, center.y)[0], kOuterLabel);
+      // The outer box's shading depends on the wall's material (a PBR material
+      // in the scene changes the lighting), so the reference color comes from
+      // the same engine with the wall removed.
+      const TestColor seen(color_.at(center.x, center.y));
+      ASSERT_TRUE(engine.RemoveGeometry(wall_id));
+      Render(c.name + "_without_wall", &engine);
+      EXPECT_TRUE(CompareColor(seen, color_, center));
+      EXPECT_FALSE(CompareColor(kBgColor, color_, center));
     }
   }
 }
