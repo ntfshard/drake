@@ -201,6 +201,7 @@ struct RenderEngineVtkParams {
     a->Visit(DRAKE_NVP(cast_shadows));
     a->Visit(DRAKE_NVP(shadow_map_size));
     a->Visit(DRAKE_NVP(force_to_pbr));
+    a->Visit(DRAKE_NVP(backface_culling));
     a->Visit(DRAKE_NVP(gltf_extensions));
     a->Visit(DRAKE_NVP(backend));
   }
@@ -328,6 +329,25 @@ struct RenderEngineVtkParams {
    Be aware, switching to PBR will lead to a qualitative change in rendered
    images even if literally nothing else changes. */
   bool force_to_pbr{false};
+
+  /** When true, triangles facing away from the camera are not drawn in any of
+   the rendered images (color, depth, and label), as with RenderEngineGl. It
+   defaults to false: every triangle is drawn from both sides.
+
+   Culling depends on each triangle's winding: a triangle faces the camera when
+   its vertices appear counter-clockwise in the image. Drake's primitive shapes
+   are wound consistently, but a mesh whose triangles are not will show holes
+   where triangles are culled.
+
+   Culling matters when the camera sees a mesh's back faces, for example a
+   depth camera (or a lidar built on one) next to or inside an open or thin
+   mesh: without culling, the back faces occlude what lies beyond them.
+
+   glTF materials declare whether they are double-sided. When this is true, a
+   glTF material marked double-sided is still drawn from both sides. (Color
+   images of single-sided glTF materials are culled regardless of this value.)
+   */
+  bool backface_culling{false};
 
   /** Map from the name of a glTF extension (e.g., "KHR_materials_sheen") to
    render engine settings related to that extension. */

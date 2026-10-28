@@ -906,6 +906,12 @@ bool RenderEngineVtk::ImplementGltf(const Mesh& mesh,
           // Depth requires a mapper with the depth shader.
           SetDepthShader(part_actor);
         }
+        if (parameters_.backface_culling) {
+          // vtkGLTFImporter culls the back faces of single-sided materials;
+          // the color actor shares that property. Make depth and label agree.
+          part_actor->GetProperty()->SetBackfaceCulling(
+              source_actor->GetProperty()->GetBackfaceCulling());
+        }
       }
       // vtkGLTFImporter uses the actor's UserTransform property to define the
       // actor's transform in the file frame (T_FA). We also have to use the
@@ -1222,6 +1228,9 @@ void RenderEngineVtk::ImplementPolyData(vtkPolyData* source,
     actor->SetObjectName(data.name);
     actor->SetMapper(mappers[image_type].Get());
     actor->SetUserTransform(vtk_X_WG);
+    if (parameters_.backface_culling) {
+      actor->GetProperty()->BackfaceCullingOn();
+    }
     pipelines_[image_type]->renderer->AddActor(actor);
     props[image_type].parts.push_back({.actor = actor, .T_GA = nullptr});
   };

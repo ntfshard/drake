@@ -5,6 +5,7 @@
 #include <limits>
 #include <memory>
 #include <optional>
+#include <regex>
 #include <source_location>
 #include <string>
 #include <tuple>
@@ -1236,6 +1237,73 @@ TEST_F(RenderEngineVtkTest, VtkGltfBehavior) {
   for (vtkActor* actor :
        RenderEngineVtkTester::GetColorActors(*renderer_, id)) {
     ASSERT_TRUE(TransformComponentsAreIdentity(actor));
+  }
+}
+
+// RenderEngineVtkParams::backface_culling. The camera sits inside a closed
+// shape, so everything it can see is the inside of the shape: its back faces.
+// Without culling, every image shows the shape; with culling, every image is
+// empty. glTF materials declared double-sided are drawn either way.
+TEST_F(RenderEngineVtkTest, BackfaceCulling) {
+  // A 4-m cube centered on the camera: the faces are 2 m away, within the
+  // depth range.
+  const RigidTransformd X_WV(X_WC_.translation());
+  const double kHalfSize = 2.0;
+  const fs::path gltf_path =
+      FindResourceOrThrow("drake/geometry/render/test/meshes/cube1.gltf");
+  // cube1.gltf spans [-1, 1]³, its triangles wound outward, and declares its
+  // material double-sided.
+  const std::string double_sided_gltf = ReadFileOrThrow(gltf_path);
+  ASSERT_NE(double_sided_gltf.find(R"("doubleSided":true)"), std::string::npos);
+  const std::string single_sided_gltf =
+      std::regex_replace(double_sided_gltf, std::regex(R"("doubleSided":true)"),
+                         R"("doubleSided":false)");
+
+  const Box box = Box::MakeCube(2 * kHalfSize);
+  const Mesh double_sided(gltf_path.string(), kHalfSize);
+  const Mesh single_sided(
+      InMemoryMesh{MemoryFile(single_sided_gltf, ".gltf", "single_sided")},
+      kHalfSize);
+
+  struct Case {
+    std::string name;
+    const Shape* shape;
+    bool culling;
+    bool expect_visible;
+  };
+  const std::vector<Case> cases{
+      {"box_no_culling", &box, false, true},
+      {"box_culling", &box, true, false},
+      {"double_sided_gltf_culling", &double_sided, true, true},
+      {"single_sided_gltf_culling", &single_sided, true, false},
+  };
+  for (const Case& c : cases) {
+    SCOPED_TRACE(c.name);
+    RenderEngineVtk engine(RenderEngineVtkParams{
+        .default_clear_color =
+            Vector3d{kBgColor.r / 255., kBgColor.g / 255., kBgColor.b / 255.},
+        .backface_culling = c.culling,
+        .backend = FLAGS_backend});
+    engine.UpdateViewpoint(X_WC_);
+    expected_label_ = RenderLabel(17);
+    PerceptionProperties props;
+    props.AddProperty("label", "id", expected_label_);
+    const GeometryId id = GeometryId::get_new_id();
+    ASSERT_TRUE(engine.RegisterVisual(id, *c.shape, props,
+                                      RigidTransformd::Identity(),
+                                      true /* needs update */, c.name));
+    engine.UpdatePoses(unordered_map<GeometryId, RigidTransformd>{{id, X_WV}});
+    Render(c.name, &engine);
+    if (c.expect_visible) {
+      const ScreenCoord center{kWidth / 2, kHeight / 2};
+      EXPECT_NEAR(depth_.at(center.x, center.y)[0], kHalfSize, kDepthTolerance);
+      EXPECT_EQ(label_.at(center.x, center.y)[0], expected_label_);
+      EXPECT_FALSE(CompareColor(kBgColor, color_, center));
+    } else {
+      VerifyUniformDepth(std::numeric_limits<float>::infinity());
+      VerifyUniformLabel(RenderLabel::kEmpty);
+      VerifyUniformColor(kBgColor);
+    }
   }
 }
 

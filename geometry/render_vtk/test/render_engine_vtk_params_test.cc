@@ -44,6 +44,7 @@ ssao:
 cast_shadows: true
 shadow_map_size: 512
 force_to_pbr: true
+backface_culling: true
 gltf_extensions:
   KHR_draco_mesh_compression:
     warn_unimplemented: true

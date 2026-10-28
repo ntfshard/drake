@@ -269,6 +269,30 @@ configuration of the RenderEngineVtk instance (after resolving default
 values as documented above). *Currently*, the EGL background does not
 support this display.)""";
         } backend;
+        // Symbol: drake::geometry::RenderEngineVtkParams::backface_culling
+        struct /* backface_culling */ {
+          // Source: drake/geometry/render_vtk/render_engine_vtk_params.h
+          const char* doc =
+R"""(When true, triangles facing away from the camera are not drawn in any
+of the rendered images (color, depth, and label), as with
+RenderEngineGl. It defaults to false: every triangle is drawn from
+both sides.
+
+Culling depends on each triangle's winding: a triangle faces the
+camera when its vertices appear counter-clockwise in the image.
+Drake's primitive shapes are wound consistently, but a mesh whose
+triangles are not will show holes where triangles are culled.
+
+Culling matters when the camera sees a mesh's back faces, for example
+a depth camera (or a lidar built on one) next to or inside an open or
+thin mesh: without culling, the back faces occlude what lies beyond
+them.
+
+glTF materials declare whether they are double-sided. When this is
+true, a glTF material marked double-sided is still drawn from both
+sides. (Color images of single-sided glTF materials are culled
+regardless of this value.))""";
+        } backface_culling;
         // Symbol: drake::geometry::RenderEngineVtkParams::cast_shadows
         struct /* cast_shadows */ {
           // Source: drake/geometry/render_vtk/render_engine_vtk_params.h
@@ -426,6 +450,7 @@ the given parameters.)""";
         auto Serialize__fields() const {
           return std::array{
             std::make_pair("backend", backend.doc),
+            std::make_pair("backface_culling", backface_culling.doc),
             std::make_pair("cast_shadows", cast_shadows.doc),
             std::make_pair("default_clear_color", default_clear_color.doc),
             std::make_pair("default_diffuse", default_diffuse.doc),
